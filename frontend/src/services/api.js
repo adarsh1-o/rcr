@@ -144,6 +144,11 @@ export async function getCoursesByFaculty(facultyId) {
   return normalizeArrayPayload(resp.data)
 }
 
+export async function getMyFacultyCourses() {
+  const resp = await api.get('/courses/faculty/me')
+  return normalizeArrayPayload(resp.data)
+}
+
 
 // Enrollments
 export async function enrollStudent(payload) {
@@ -209,6 +214,47 @@ export async function markCourseOpened({ studentId, courseId }) {
 export async function getAssignmentsByCourse(courseId) {
   const resp = await api.get(`/assignments/course/${courseId}`)
   return normalizeArrayPayload(resp.data)
+}
+
+export async function getAssignmentResources(assignmentId) {
+  const resp = await api.get(`/assignments/${assignmentId}/resources`)
+  return normalizeArrayPayload(resp.data)
+}
+
+export async function uploadAssignmentResource(assignmentId, file) {
+  const form = new FormData()
+  form.append('file', file)
+  const resp = await api.post(`/assignments/${assignmentId}/resources`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return resp.data
+}
+
+export async function downloadAssignmentResource(assignmentId, resource) {
+  try {
+    const resp = await api.get(`/assignments/${assignmentId}/resources/${resource.id}/download`, {
+      responseType: 'blob',
+    })
+    const url = URL.createObjectURL(resp.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = resource.originalFilename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) {
+    let message = error?.response?.data?.message
+    if (error?.response?.data instanceof Blob) {
+      try {
+        const body = JSON.parse(await error.response.data.text())
+        message = body.message
+      } catch {
+        // Keep the useful fallback for non-JSON error responses.
+      }
+    }
+    throw new Error(message || 'Could not download this assignment file. Please try again.', { cause: error })
+  }
 }
 
 export async function createAssignment(payload) {
@@ -477,18 +523,17 @@ export async function getAttemptsByQuizAndStudent(quizId, studentId) {
 export async function sendMessageToChatbot(payload) {
   const resp = await api.post('/chatbot/message', {
     message: payload.message,
-    studentId: payload.studentId,
   })
   return resp.data
 }
 
-export async function getChatbotHistory(studentId) {
-  const resp = await api.get(`/chatbot/history/${studentId}`)
+export async function getChatbotHistory() {
+  const resp = await api.get('/chatbot/history')
   return normalizeArrayPayload(resp.data)
 }
 
-export async function clearChatbotHistory(studentId) {
-  const resp = await api.delete(`/chatbot/history/${studentId}`)
+export async function clearChatbotHistory() {
+  const resp = await api.delete('/chatbot/history')
   return resp.data
 }
 

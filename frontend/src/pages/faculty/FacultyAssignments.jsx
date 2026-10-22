@@ -9,6 +9,9 @@ import {
   updateAssignment,
   deleteAssignment,
   getAssignmentTracking,
+  getAssignmentResources,
+  uploadAssignmentResource,
+  downloadAssignmentResource,
   ensureArray,
 } from '../../services/api'
 
@@ -20,8 +23,15 @@ function SubmissionBadge({ status }) {
 function toDateTimeLocal(value) {
   if (!value) return ''
   const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset())
   return date.toISOString().slice(0, 16)
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export default function FacultyAssignments() {
@@ -30,20 +40,34 @@ export default function FacultyAssignments() {
 
   const [model, setModel] = useState({ courses: [], assignments: [] })
   const [activeId, setActiveId] = useState(null)
+  const [error, setError] = useState(null)
   const active = model.assignments.find((a) => a.id === activeId) ?? model.assignments[0] ?? null
 
   useEffect(() => {
     let mounted = true
     async function load() {
       if (!facultyId) return
-      const courses = ensureArray(await getCoursesByFaculty(facultyId))
-      const assignments = []
-      for (const c of courses) {
-        const assigns = ensureArray(await getAssignmentsByCourse(c.id))
-        for (const a of assigns) assignments.push(a)
+      setError(null)
+      try {
+        const courses = ensureArray(await getCoursesByFaculty(facultyId))
+        const assignments = []
+        for (const c of courses) {
+          const assigns = ensureArray(await getAssignmentsByCourse(c.id))
+          for (const a of assigns) assignments.push(a)
+        }
+        assignments.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+        if (mounted) {
+          const selected = assignments[0] ?? null
+          setModel({ courses, assignments })
+          setActiveId(selected?.id ?? null)
+          syncAssignmentForm(selected)
+        }
+      } catch (e) {
+        if (mounted) {
+          setModel({ courses: [], assignments: [] })
+          setError(e?.response?.data?.message ?? 'Could not load courses and assignments. Please try again.')
+        }
       }
-      assignments.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-      if (mounted) setModel({ courses, assignments })
     }
     load()
     return () => { mounted = false }
@@ -51,7 +75,13 @@ export default function FacultyAssignments() {
   const [grade, setGrade] = useState('')
   const [feedback, setFeedback] = useState('')
   const [submissions, setSubmissions] = useState([])
-  const [error, setError] = useState(null)
+  const [resources, setResources] = useState([])
+  const [resourceFiles, setResourceFiles] = useState([])
+  const [resourceReloadKey, setResourceReloadKey] = useState(0)
+  const [resourceMessage, setResourceMessage] = useState(null)
+  const [resourceError, setResourceError] = useState(null)
+  const [uploadingResources, setUploadingResources] = useState(false)
+  const [downloadingResourceId, setDownloadingResourceId] = useState(null)
   const [editing, setEditing] = useState(false)
 
   // Form fields derived from active assignment when not editing
@@ -62,16 +92,13 @@ export default function FacultyAssignments() {
   const [maxMarks, setMaxMarks] = useState('100')
   const [allowLateSubmission, setAllowLateSubmission] = useState(false)
 
-  // Sync form fields when active changes (using key trick: reset via separate tracked id)
-  const [syncedActiveId, setSyncedActiveId] = useState(null)
-  if (active?.id !== syncedActiveId) {
-    setSyncedActiveId(active?.id ?? null)
-    setEditedTitle(active?.title ?? '')
-    setEditedDescription(active?.description ?? '')
-    setEditedDueDate(toDateTimeLocal(active?.dueDate))
-    setEditedCourseId(String(active?.courseId ?? ''))
-    setMaxMarks(String(active?.maxMarks ?? 100))
-    setAllowLateSubmission(Boolean(active?.allowLateSubmission))
+  function syncAssignmentForm(assignment) {
+    setEditedTitle(assignment?.title ?? '')
+    setEditedDescription(assignment?.description ?? '')
+    setEditedDueDate(toDateTimeLocal(assignment?.dueDate))
+    setEditedCourseId(String(assignment?.courseId ?? ''))
+    setMaxMarks(String(assignment?.maxMarks ?? 100))
+    setAllowLateSubmission(Boolean(assignment?.allowLateSubmission))
   }
 
   // Convenience aliases so the rest of the code keeps working unchanged
@@ -155,6 +182,27 @@ export default function FacultyAssignments() {
     return () => { mounted = false }
   }, [active?.id])
 
+  useEffect(() => {
+    let mounted = true
+    if (!active?.id) {
+      return () => { mounted = false }
+    }
+    getAssignmentResources(active.id)
+      .then((items) => {
+        if (mounted) {
+          setResources(ensureArray(items))
+          setResourceError(null)
+        }
+      })
+      .catch((e) => {
+        if (mounted) {
+          setResources([])
+          setResourceError(e?.response?.data?.message ?? 'Could not load assignment files.')
+        }
+      })
+    return () => { mounted = false }
+  }, [active?.id, resourceReloadKey])
+
   async function handleCreateAssignment() {
     const cid = ensureActiveCourse()
     if (!cid) return alert('Create a course first.')
@@ -181,6 +229,7 @@ export default function FacultyAssignments() {
       setDueDate('')
       setMaxMarks('100')
       setAllowLateSubmission(false)
+      syncAssignmentForm(assignments[0] ?? null)
       setEditing(false)
     } catch (e) {
       setError(e?.response?.data?.message ?? 'Failed to create assignment')
@@ -236,11 +285,48 @@ export default function FacultyAssignments() {
     setError(null)
     try {
       await deleteAssignment(id)
-      await reloadAssignments()
+      const assignments = await reloadAssignments()
       setActiveId(null)
+      syncAssignmentForm(assignments[0] ?? null)
       setEditing(false)
     } catch (e) {
       setError(e?.response?.data?.message ?? 'Failed to delete assignment')
+    }
+  }
+
+  async function handleUploadResources() {
+    if (!active?.id || !resourceFiles.length) return
+    setUploadingResources(true)
+    setResourceError(null)
+    setResourceMessage(null)
+    let uploaded = 0
+    try {
+      for (const file of resourceFiles) {
+        await uploadAssignmentResource(active.id, file)
+        uploaded += 1
+      }
+      setResourceFiles([])
+      setResourceMessage(`Uploaded ${uploaded} resource${uploaded === 1 ? '' : 's'}.`)
+    } catch (e) {
+      const message = e?.response?.data?.message ?? e.message ?? 'Upload failed.'
+      setResourceError(uploaded
+        ? `Uploaded ${uploaded} file(s), then stopped: ${message}`
+        : message)
+    } finally {
+      setResourceReloadKey((key) => key + 1)
+      setUploadingResources(false)
+    }
+  }
+
+  async function handleDownloadResource(resource) {
+    setDownloadingResourceId(resource.id)
+    setResourceError(null)
+    try {
+      await downloadAssignmentResource(active.id, resource)
+    } catch (e) {
+      setResourceError(e.message || 'Could not download this file.')
+    } finally {
+      setDownloadingResourceId(null)
     }
   }
 
@@ -278,7 +364,11 @@ export default function FacultyAssignments() {
                     background: a.id === activeId ? 'rgba(124,58,237,.10)' : 'rgba(255,255,255,.02)',
                     border: a.id === activeId ? '1px solid rgba(124,58,237,.45)' : '1px solid transparent',
                   }}
-                  onClick={() => setActiveId(a.id)}
+                  onClick={() => {
+                    setResourceFiles([])
+                    setActiveId(a.id)
+                    syncAssignmentForm(a)
+                  }}
                 >
                   <div style={{ fontWeight: 950 }}>{a.title}</div>
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>Course: {courseTitle(a.courseId)}</div>
@@ -340,6 +430,40 @@ export default function FacultyAssignments() {
                 </>
               )}
             </div>
+
+            <div className="hr" />
+            <div style={{ fontWeight: 900 }}>Assignment resources</div>
+            {resourceMessage ? <div role="status" className="badge badgeSuccess">{resourceMessage}</div> : null}
+            {resourceError ? <div role="alert" className="badge badgeDanger">{resourceError}</div> : null}
+            {active ? (
+              <>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {resources.map((resource) => (
+                    <div key={resource.id} className="card" style={{ padding: 10, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span>{resource.originalFilename} <span style={{ opacity: 0.7 }}>({formatFileSize(resource.fileSize)})</span></span>
+                      <button type="button" className="btn" disabled={downloadingResourceId === resource.id} onClick={() => handleDownloadResource(resource)}>
+                        {downloadingResourceId === resource.id ? 'Downloading…' : 'Download'}
+                      </button>
+                    </div>
+                  ))}
+                  {!resources.length ? <div style={{ fontSize: 13, opacity: 0.75 }}>No files attached yet.</div> : null}
+                </div>
+                <label className="label" htmlFor="assignment-resource-files">Add files (PDF, TXT, DOCX, PPTX; up to 10 MB each)</label>
+                <input
+                  id="assignment-resource-files"
+                  className="input"
+                  type="file"
+                  multiple
+                  accept=".pdf,.txt,.docx,.pptx"
+                  onChange={(event) => setResourceFiles(Array.from(event.target.files ?? []))}
+                />
+                <button type="button" className="btn btnPrimary" disabled={!resourceFiles.length || uploadingResources} onClick={handleUploadResources}>
+                  {uploadingResources ? 'Uploading…' : resourceFiles.length ? `Upload ${resourceFiles.length} selected file${resourceFiles.length === 1 ? '' : 's'}` : 'Upload selected files'}
+                </button>
+              </>
+            ) : (
+              <div style={{ fontSize: 13, opacity: 0.75 }}>Create or select an assignment before adding resources.</div>
+            )}
           </div>
         </div>
 

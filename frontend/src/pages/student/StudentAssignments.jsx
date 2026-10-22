@@ -6,6 +6,8 @@ import {
   getAssignmentsByCourse,
   getSubmissionsByStudent,
   submitAssignment,
+  getAssignmentResources,
+  downloadAssignmentResource,
   ensureArray,
 } from '../../services/api'
 
@@ -19,6 +21,12 @@ function GradeBadge({ status }) {
   return <span className={v.cls}>{v.text}</span>
 }
 
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export default function StudentAssignments() {
   const { user } = useAuth()
   const studentId = user?.userId ?? user?.id
@@ -30,6 +38,10 @@ export default function StudentAssignments() {
   const [success, setSuccess] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [resources, setResources] = useState([])
+  const [resourcesForAssignmentId, setResourcesForAssignmentId] = useState(null)
+  const [resourceError, setResourceError] = useState(null)
+  const [downloadingResourceId, setDownloadingResourceId] = useState(null)
 
   useEffect(() => {
     let mounted = true
@@ -83,6 +95,28 @@ export default function StudentAssignments() {
     }
   }, [studentId, activeId, reloadKey])
 
+  useEffect(() => {
+    const assignmentId = model.active?.id
+    if (!assignmentId) return
+    let mounted = true
+    getAssignmentResources(assignmentId)
+      .then((items) => {
+        if (mounted) {
+          setResources(ensureArray(items))
+          setResourcesForAssignmentId(assignmentId)
+          setResourceError(null)
+        }
+      })
+      .catch((e) => {
+        if (mounted) {
+          setResources([])
+          setResourcesForAssignmentId(assignmentId)
+          setResourceError(e?.response?.data?.message ?? 'Could not load assignment files.')
+        }
+      })
+    return () => { mounted = false }
+  }, [model.active?.id])
+
   async function submit() {
     if (!model.active || !studentId || !answer.trim()) return
     setSubmitting(true)
@@ -96,6 +130,18 @@ export default function StudentAssignments() {
       setError(e?.response?.data?.message ?? 'Submission failed')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function downloadResource(resource) {
+    setDownloadingResourceId(resource.id)
+    setResourceError(null)
+    try {
+      await downloadAssignmentResource(model.active.id, resource)
+    } catch (e) {
+      setResourceError(e.message || 'Could not download this assignment file.')
+    } finally {
+      setDownloadingResourceId(null)
     }
   }
 
@@ -150,6 +196,22 @@ export default function StudentAssignments() {
           {model.active?.description ? (
             <div style={{ opacity: 0.85, fontSize: 13, marginTop: 8, lineHeight: 1.6 }}>{model.active.description}</div>
           ) : null}
+
+          <div style={{ marginTop: 16, fontWeight: 850 }}>Assignment files</div>
+          {resourceError ? <div role="alert" className="badge badgeDanger" style={{ marginTop: 8 }}>{resourceError}</div> : null}
+          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+            {resourcesForAssignmentId === model.active?.id ? resources.map((resource) => (
+              <div key={resource.id} className="card" style={{ padding: 10, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span>{resource.originalFilename} <span style={{ opacity: 0.7 }}>({formatFileSize(resource.fileSize)})</span></span>
+                <button type="button" className="btn" disabled={downloadingResourceId === resource.id} onClick={() => downloadResource(resource)}>
+                  {downloadingResourceId === resource.id ? 'Downloading…' : 'Download'}
+                </button>
+              </div>
+            )) : null}
+            {model.active && resourcesForAssignmentId === model.active.id && !resources.length && !resourceError ? (
+              <div style={{ fontSize: 13, opacity: 0.75 }}>No files are attached to this assignment.</div>
+            ) : null}
+          </div>
 
           <div className="hr" />
 

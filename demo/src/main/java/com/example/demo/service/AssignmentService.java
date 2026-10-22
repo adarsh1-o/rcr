@@ -101,6 +101,16 @@ public class AssignmentService {
         return authorizedAssignment(id, actor);
     }
 
+    @Transactional(readOnly = true)
+    public Assignment getAssignmentForManagement(Long id, User actor) {
+        Assignment assignment = authorizedAssignment(id, actor);
+        if (actor.getRole() != Role.ADMIN && actor.getRole() != Role.FACULTY) {
+            throw new AccessDeniedException("Access denied");
+        }
+        ensureCourseOwner(assignment.getCourse(), actor);
+        return assignment;
+    }
+
     private Assignment authorizedAssignment(Long id, User actor) {
         Assignment assignment = assignmentRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Assignment not found"));

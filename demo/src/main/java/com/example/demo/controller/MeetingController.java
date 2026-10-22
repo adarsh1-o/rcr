@@ -42,7 +42,7 @@ public class MeetingController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN','FACULTY')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<MeetingResponse> create(@Valid @RequestBody CreateMeetingRequest req, Authentication authentication) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(meetingService.createMeeting(req, currentUser(authentication)));

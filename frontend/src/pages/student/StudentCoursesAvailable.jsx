@@ -10,7 +10,7 @@ import {
   ensureArray,
 } from '../../services/api'
 
-function CourseCard({ course, progress, onEnroll, onOpen, enrolled }) {
+function CourseCard({ course, progress, onEnroll, onOpen, enrolled, busy }) {
   const primaryUrl = course.primaryUrl
 
   return (
@@ -37,18 +37,15 @@ function CourseCard({ course, progress, onEnroll, onOpen, enrolled }) {
         </div>
 
         <div style={{ textAlign: 'right' }}>
-          <div className="badge" style={{ opacity: 0.95 }}>
-            {progress}% complete
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>Progress</div>
+          {progress != null ? <><div className="badge" style={{ opacity: 0.95 }}>{progress}% complete</div><div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>Progress</div></> : null}
         </div>
       </div>
 
       <div style={{ marginTop: 12, fontSize: 13, opacity: 0.82, lineHeight: 1.55 }}>{course.description}</div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-        <button className="btn" onClick={() => onEnroll(course.id)} disabled={enrolled}>
-          {enrolled ? 'Enrolled' : 'Enroll'}
+        <button className="btn" onClick={() => onEnroll(course.id)} disabled={enrolled || busy}>
+          {enrolled ? 'Enrolled' : busy ? 'Enrolling…' : 'Enroll'}
         </button>
         {enrolled && primaryUrl ? (
           <a className="btn btnPrimary" href={primaryUrl} target="_blank" rel="noreferrer" onClick={() => onOpen(course.id)}>
@@ -72,6 +69,10 @@ export default function StudentCoursesAvailable() {
   const [query, setQuery] = useState('')
   const [model, setModel] = useState({ courses: [], enrolledCourseIds: new Set() })
   const [loadError, setLoadError] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [busyCourseId, setBusyCourseId] = useState(null)
+  const [actionError, setActionError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let mounted = true
@@ -80,6 +81,7 @@ export default function StudentCoursesAvailable() {
       if (!studentId) return
 
       setLoadError(null)
+      setLoading(true)
 
       try {
         let coursesRaw = ensureArray(await getCourses())
@@ -102,14 +104,14 @@ export default function StudentCoursesAvailable() {
         const courses = []
         for (const c of coursesRaw) {
           const progress = progressRecords.find((p) => String(p.courseId) === String(c.id))
-          const completion = progress?.progressPercent ?? 0
+          const completion = progress?.progressPercent ?? null
 
           courses.push({
             id: c.id,
             title: c.title,
             description: c.description,
             facultyName: c.facultyName ?? 'Faculty',
-            completion,
+            completion: progress ? completion : null,
             learningLinks: ensureArray(c.learningLinks),
             primaryUrl: ensureArray(c.learningLinks)[0]?.url ?? null,
           })
@@ -121,6 +123,8 @@ export default function StudentCoursesAvailable() {
           setLoadError(err?.response?.data?.message ?? err?.message ?? 'Failed to load courses')
           setModel({ courses: [], enrolledCourseIds: new Set() })
         }
+      } finally {
+        if (mounted) setLoading(false)
       }
     }
 
@@ -128,7 +132,7 @@ export default function StudentCoursesAvailable() {
     return () => {
       mounted = false
     }
-  }, [studentId])
+  }, [studentId, reloadKey])
 
   const visibleCourses = useMemo(() => {
     const q = query.toLowerCase().trim()
@@ -137,20 +141,24 @@ export default function StudentCoursesAvailable() {
 
   async function handleEnroll(courseId) {
     if (!studentId) return
-    await enrollStudent({ studentId, courseId })
-    navigate('/student/courses/my')
+    setBusyCourseId(String(courseId))
+    setActionError('')
+    try {
+      await enrollStudent({ studentId, courseId })
+      navigate('/student/courses/my')
+    } catch (err) {
+      setActionError(err?.response?.data?.message || 'Could not enroll in this course. Please try again.')
+    } finally {
+      setBusyCourseId(null)
+    }
   }
 
   async function handleOpenCourse(courseId) {
     if (!studentId || !courseId) return
-    setModel((prev) => ({
-      ...prev,
-      courses: prev.courses.map((c) => String(c.id) === String(courseId) ? { ...c, completion: 100 } : c),
-    }))
     try {
       await markCourseOpened({ studentId, courseId })
     } catch {
-      // Keep the navigation responsive; the backend remains the source on refresh.
+      // The learning link remains usable when tracking is temporarily unavailable.
     }
   }
 
@@ -177,28 +185,28 @@ export default function StudentCoursesAvailable() {
         </div>
 
         {loadError ? (
-          <div className="badge badgeDanger" style={{ marginTop: 14, display: 'block' }}>
-            {loadError}
-          </div>
+          <div className="course-error" role="alert" style={{ marginTop: 14 }}>{loadError}<button className="btn btnSmall" onClick={() => setReloadKey((key) => key + 1)}>Retry</button></div>
         ) : null}
+        {actionError ? <div className="course-error" role="alert" style={{ marginTop: 10 }}>{actionError}</div> : null}
       </div>
 
       <div className="grid" style={{ marginTop: 14, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
-        {visibleCourses.length ? (
+        {loading ? <div className="card" aria-live="polite" style={{ padding: 20, gridColumn: '1 / -1' }}>Loading available courses…</div> : visibleCourses.length ? (
           visibleCourses.map((course) => (
             <CourseCard
               key={course.id}
               course={course}
-              progress={course.completion ?? 0}
+              progress={course.completion}
               enrolled={model.enrolledCourseIds.has(String(course.id))}
-              onEnroll={handleEnroll}
+              onEnroll={(id) => { void handleEnroll(id) }}
               onOpen={handleOpenCourse}
+              busy={busyCourseId === String(course.id)}
             />
           ))
         ) : (
           <div className="card" style={{ padding: 16, gridColumn: '1 / -1' }}>
             <div className="badge" style={{ opacity: 0.85 }}>
-              {loadError ? 'Could not load courses.' : 'No courses available yet. Ask faculty to create a course.'}
+              {loadError ? 'Could not load courses.' : query ? 'No courses match your search. Try another name.' : 'No courses available yet. Ask faculty to create a course.'}
             </div>
           </div>
         )}

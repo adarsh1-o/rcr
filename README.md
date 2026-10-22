@@ -1,15 +1,16 @@
 # Remote Classroom for Rural Students (RCR Project)
 
-A full-stack web application for remote learning, built with Spring Boot (Java 21) and React (Vite).
+A full-stack remote learning platform with a React and Vite frontend and a Spring Boot backend. It supports student, faculty, and administrator workspaces for course learning, assignments, live classes, attendance, and student support.
 
 ## Features
 
 ### For Students
 - View and enroll in available courses
 - Track course progress and attendance
-- Submit assignments and view grades
+- View assignments, submit answers, and view grades and feedback
+- Download faculty-provided assignment resources
 - Ask doubts and receive replies from faculty
-- Join live WebRTC video classes for enrolled courses
+- Join live video classes for enrolled courses
 - Ask questions to an AI-powered educational assistant
 - View notifications
 
@@ -17,7 +18,8 @@ A full-stack web application for remote learning, built with Spring Boot (Java 2
 - Create and manage courses
 - Add learning links (YouTube, Google Drive, PDF, etc.)
 - Create and grade assignments
-- Schedule and manage live WebRTC video classes
+- Attach and manage assignment resource files
+- Schedule and manage live video classes
 - Mark attendance for enrolled students
 - View student progress and completion rates
 - Reply to student doubts
@@ -30,10 +32,10 @@ A full-stack web application for remote learning, built with Spring Boot (Java 2
 ## Tech Stack
 
 ### Backend
-- **Java 21** with Spring Boot 4.1.0
+- **Java 17** with Spring Boot 4.1.0
 - **Spring Security** with JWT authentication
 - **Spring Data JPA** with Hibernate
-- **MySQL** database (production) / H2 (development)
+- **MySQL** database by default; H2 can be selected for isolated local development and tests
 - **Lombok** for reduced boilerplate
 
 ### Frontend
@@ -46,7 +48,7 @@ A full-stack web application for remote learning, built with Spring Boot (Java 2
 
 ## Prerequisites
 
-- Java 21 or higher
+- Java 17 or higher
 - Node.js 18 or higher
 - MySQL 8.0 or higher (for production)
 
@@ -60,13 +62,13 @@ cd rcr-project
 
 ### 2. Database Setup
 
-The application uses MySQL by default. Create a database named `rcr_project`:
+The checked-in application configuration uses MySQL by default. Create the `demo` database configured in `demo/src/main/resources/application.properties`:
 
 ```sql
-CREATE DATABASE rcr_project;
+CREATE DATABASE demo;
 ```
 
-Update the database credentials in `demo/src/main/resources/application.properties`:
+Supply database credentials through your local configuration or environment. Do not commit credentials:
 ```properties
 spring.datasource.username=your_username
 spring.datasource.password=your_password
@@ -90,6 +92,18 @@ mvn spring-boot:run
 
 The backend will start on `http://localhost:8080`
 
+For a disposable local database, set the Spring datasource environment variables to an H2 in-memory URL and set `SPRING_JPA_HIBERNATE_DDL_AUTO=create-drop` before starting the backend. This creates an empty database that is discarded when the process stops. Never point a test run at a database containing project data.
+
+PowerShell example:
+```powershell
+$env:SPRING_DATASOURCE_URL = 'jdbc:h2:mem:rcr_local;DB_CLOSE_DELAY=-1'
+$env:SPRING_DATASOURCE_DRIVER_CLASS_NAME = 'org.h2.Driver'
+$env:SPRING_DATASOURCE_USERNAME = 'sa'
+$env:SPRING_DATASOURCE_PASSWORD = ''
+$env:SPRING_JPA_HIBERNATE_DDL_AUTO = 'create-drop'
+./mvnw.cmd spring-boot:run
+```
+
 ### 4. Frontend Setup
 
 Open a new terminal:
@@ -101,15 +115,9 @@ npm run dev
 
 The frontend will start on `http://localhost:5173`
 
-## Default Test Credentials
+If the backend runs on a different local port, set `VITE_API_PROXY_TARGET` before starting Vite (for example, `http://localhost:8082`). The default remains `http://localhost:8080`.
 
-After starting the application, you can register new users or use these test accounts:
-
-| Role    | Email              | Password      |
-|---------|--------------------|---------------|
-| Admin   | admin@rcr.com      | password123   |
-| Faculty | faculty@rcr.com    | password123   |
-| Student | student@rcr.com    | password123   |
+Public registration supports student and faculty accounts. Administrator accounts must be provisioned by an administrator; public registration cannot assign the administrator role. No default credentials are included in this repository.
 
 ## API Documentation
 
@@ -140,6 +148,9 @@ After starting the application, you can register new users or use these test acc
 - `POST /api/assignments` - Create assignment (Faculty)
 - `PUT /api/assignments/{id}` - Update assignment (Faculty)
 - `DELETE /api/assignments/{id}` - Delete assignment (Faculty)
+- `GET /api/assignments/{id}/resources` - List authorized assignment resources
+- `POST /api/assignments/{id}/resources` - Upload an assignment resource (Faculty)
+- `GET /api/assignments/{id}/resources/{resourceId}/download` - Download an authorized resource
 
 ### Submissions
 - `POST /api/submissions` - Submit assignment
@@ -165,11 +176,14 @@ After starting the application, you can register new users or use these test acc
 - `PUT /api/notifications/{id}/read` - Mark notification as read
 - `POST /api/notifications` - Create notification
 
-### Live Meetings (WebRTC)
+### Live Meetings
 - `POST /api/meetings` - Create a meeting (Faculty)
 - `GET /api/meetings/course/{courseId}` - Get meetings by course
 - `GET /api/meetings/{id}` - Get meeting details
 - `PATCH /api/meetings/{id}/status` - Update meeting status (Faculty)
+- `POST /api/meetings/{id}/join` - Join an authorized live meeting
+
+API routes require JWT authentication unless explicitly permitted by `SecurityConfig`. Role and ownership checks are also enforced in backend services/controllers. Course and assignment data is not publicly available from the unauthenticated landing page.
 
 ### AI Assistant
 - `POST /api/chatbot/message` - Send message to AI Chatbot

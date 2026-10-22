@@ -9,6 +9,7 @@ import com.example.demo.exception.DuplicateResourceException;
 import com.example.demo.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -26,6 +27,9 @@ public class AuthService {
         }
 
         Role role = req.getRole() == null ? Role.STUDENT : req.getRole();
+        if (role == Role.ADMIN) {
+            throw new AccessDeniedException("Administrator accounts must be provisioned by an administrator.");
+        }
 
         User saved = User.builder()
                 .name(req.getName())

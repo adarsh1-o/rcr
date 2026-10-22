@@ -6,6 +6,9 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import com.example.demo.service.FileStorageException;
+import com.example.demo.service.ChatbotProviderException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -40,6 +43,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<?> handleIllegalArg(IllegalArgumentException ex) {
         return ResponseEntity.badRequest().body(errorBody(ex.getMessage()));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<?> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(errorBody("The uploaded file exceeds the configured size limit."));
+    }
+
+    @ExceptionHandler(FileStorageException.class)
+    public ResponseEntity<?> handleFileStorage(FileStorageException ex) {
+        return ResponseEntity.internalServerError().body(errorBody(ex.getMessage()));
+    }
+
+    @ExceptionHandler(ChatbotProviderException.class)
+    public ResponseEntity<?> handleChatbotProvider(ChatbotProviderException ex) {
+        return ResponseEntity.status(ex.getStatus()).body(errorBody(ex.getMessage()));
     }
 
     @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)

@@ -6,8 +6,8 @@ import { toast } from 'sonner'
 
 export default function ChatbotWidget() {
   const { user } = useAuth()
-  const studentId = user?.userId ?? user?.id
   const isStudent = user?.role === 'STUDENT'
+  const accountKey = user?.userId ?? user?.id ?? null
 
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState([])
@@ -17,12 +17,18 @@ export default function ChatbotWidget() {
 
   const messagesEndRef = useRef(null)
 
+  useEffect(() => {
+    // Do not leave a previous account's conversation visible after logout or account switching.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMessages([])
+    setIsOpen(false)
+  }, [accountKey])
+
   // Load history when widget is opened
   const loadHistory = useCallback(async () => {
-    if (!studentId) return
     setLoadingHistory(true)
     try {
-      const history = ensureArray(await getChatbotHistory(studentId))
+      const history = ensureArray(await getChatbotHistory())
       setMessages(
         history.map((m) => ({
           id: m.id,
@@ -35,15 +41,15 @@ export default function ChatbotWidget() {
     } finally {
       setLoadingHistory(false)
     }
-  }, [studentId])
+  }, [])
 
   useEffect(() => {
-    if (isOpen && studentId) {
+    if (isOpen && isStudent) {
       // Loading saved messages is the synchronization this effect handles.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void loadHistory()
     }
-  }, [isOpen, studentId, loadHistory])
+  }, [isOpen, isStudent, loadHistory])
 
   // Scroll to bottom helper
   const scrollToBottom = () => {
@@ -70,10 +76,10 @@ export default function ChatbotWidget() {
     setLoading(true)
 
     try {
-      const res = await sendMessageToChatbot({ message: userText, studentId })
+      const res = await sendMessageToChatbot({ message: userText })
       setMessages((prev) => [...prev, { id: Date.now() + 1, text: res.reply, sender: 'BOT' }])
-    } catch {
-      toast.error('Chatbot failed to respond')
+    } catch (error) {
+      toast.error(error?.response?.data?.message || 'The assistant could not respond. Please try again.')
       // Remove user's temporary message on error to stay in sync
       setMessages((prev) => prev.filter((m) => m.id !== newUserMsg.id))
     } finally {
@@ -84,7 +90,7 @@ export default function ChatbotWidget() {
   async function handleClearHistory() {
     if (!window.confirm('Clear all conversation history?')) return
     try {
-      await clearChatbotHistory(studentId)
+      await clearChatbotHistory()
       setMessages([])
       toast.success('Chat history cleared')
     } catch {
@@ -92,7 +98,7 @@ export default function ChatbotWidget() {
     }
   }
 
-  if (!isStudent || !studentId) return null
+  if (!isStudent) return null
 
   // Simple Markdown-like formatter for bold and lists
   function formatMessageText(text) {
@@ -246,7 +252,7 @@ export default function ChatbotWidget() {
               <div style={{ margin: 'auto', textAlign: 'center', opacity: 0.7, padding: 20 }}>
                 <div style={{ fontWeight: 800, fontSize: 14 }}>Ask RCR Assistant</div>
                 <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
-                  Type a question about courses, offline learning, quiz submissions, or doubts.
+                  Ask about any subject, programming, studies, careers, or using the RCR platform.
                 </div>
               </div>
             ) : (
@@ -309,6 +315,7 @@ export default function ChatbotWidget() {
             <input
               type="text"
               className="input"
+              maxLength={2000}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask a question..."

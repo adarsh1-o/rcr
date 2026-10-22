@@ -40,6 +40,13 @@ public class CourseController {
         return ResponseEntity.ok(courseService.getCoursesByFacultyId(facultyId));
     }
 
+    @GetMapping("/faculty/me")
+    @PreAuthorize("hasRole('FACULTY')")
+    public ResponseEntity<List<CourseResponse>> getMyCourses(Authentication authentication) {
+        User currentUser = getCurrentUser(authentication);
+        return ResponseEntity.ok(courseService.getCoursesByFacultyId(currentUser.getId()));
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'FACULTY')")
     public ResponseEntity<CourseResponse> createCourse(@Valid @RequestBody CourseRequest request,

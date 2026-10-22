@@ -1,13 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
-import { getCoursesByFaculty, getMeetingsByCourse, createMeeting, ensureArray } from '../../services/api'
+import { getMyFacultyCourses, getMeetingsByCourse, createMeeting, ensureArray } from '../../services/api'
 import { Video, Plus, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useForm } from 'react-hook-form'
 
 export default function FacultyMeetings() {
-  const { user } = useAuth()
   const navigate = useNavigate()
   const [courses, setCourses] = useState([])
   const [selectedCourseId, setSelectedCourseId] = useState('')
@@ -20,7 +18,7 @@ export default function FacultyMeetings() {
 
   const loadCourses = useCallback(async () => {
     try {
-      const data = ensureArray(await getCoursesByFaculty(user?.userId ?? user?.id))
+      const data = ensureArray(await getMyFacultyCourses())
       setCourses(data)
       if (data.length > 0) {
         setSelectedCourseId(data[0].id)
@@ -30,7 +28,7 @@ export default function FacultyMeetings() {
     } finally {
       setLoading(false)
     }
-  }, [user])
+  }, [])
 
   const loadMeetings = useCallback(async (courseId) => {
     try {
@@ -79,8 +77,22 @@ export default function FacultyMeetings() {
       await loadMeetings(selectedCourseId)
     } catch (e) {
       const validationErrors = e?.response?.data?.errors
-      const detail = validationErrors ? Object.values(validationErrors).join('. ') : e?.response?.data?.message
-      toast.error(detail || 'Failed to schedule meeting')
+      const detail = validationErrors
+        ? Object.values(validationErrors).join('. ')
+        : e?.response?.data?.message ?? e?.response?.data?.detail
+      const status = e?.response?.status
+      const message = detail
+        || (status === 401 ? 'Please sign in again to schedule a class.'
+          : status === 403 ? 'You can schedule classes only for courses you teach.'
+            : status ? `Could not schedule the class (HTTP ${status}). Please try again.`
+              : 'Could not reach the server. Check your connection and try again.')
+      console.error('Live class scheduling failed', {
+        status: status ?? 'network',
+        code: e?.code ?? null,
+        message: e?.message ?? null,
+        response: e?.response?.data ?? null,
+      })
+      toast.error(message)
     } finally {
       setSaving(false)
     }
