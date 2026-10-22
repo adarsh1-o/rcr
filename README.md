@@ -7,6 +7,12 @@ A full-stack remote learning platform with a React and Vite frontend and a Sprin
 ### Student dashboard and assistant
 ![Student dashboard with the RCR Assistant open](docs/screenshots/student-dashboard-assistant.png)
 
+### Student assignments
+![Student assignments page](docs/screenshots/student-assignments.png)
+
+### Student doubts and faculty replies
+![Student doubts page showing a faculty reply](docs/screenshots/student-doubts-and-replies.png)
+
 ### Faculty live class with private chat
 ![Faculty live class showing the meeting chat and participants](docs/screenshots/faculty-live-class-private-chat.png)
 
