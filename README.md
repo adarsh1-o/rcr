@@ -2,6 +2,17 @@
 
 A full-stack remote learning platform with a React and Vite frontend and a Spring Boot backend. It supports student, faculty, and administrator workspaces for course learning, assignments, live classes, attendance, and student support.
 
+## Screenshots
+
+### Student dashboard and assistant
+![Student dashboard with the RCR Assistant open](docs/screenshots/student-dashboard-assistant.png)
+
+### Faculty live class with private chat
+![Faculty live class showing the meeting chat and participants](docs/screenshots/faculty-live-class-private-chat.png)
+
+### Faculty live class scheduling
+![Faculty live class scheduling page](docs/screenshots/faculty-live-classes-scheduling.png)
+
 ## Features
 
 ### For Students
